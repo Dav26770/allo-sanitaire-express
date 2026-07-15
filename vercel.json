@@ -1,0 +1,10 @@
+{
+  "redirects": [
+    { "source": "/nos-services.html", "destination": "/", "permanent": true },
+    { "source": "/debouchage-canalisation.html", "destination": "/depannage-sanitaire.html", "permanent": true },
+    { "source": "/debouchage-wc.html", "destination": "/depannage-sanitaire.html", "permanent": true },
+    { "source": "/hydrocurage-curage.html", "destination": "/depannage-sanitaire.html", "permanent": true },
+    { "source": "/urgence-24h.html", "destination": "/depannage-sanitaire.html", "permanent": true },
+    { "source": "/tarifs.html", "destination": "/renovation-salle-de-bain.html", "permanent": true }
+  ]
+}

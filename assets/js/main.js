@@ -1,125 +1,125 @@
 /* ==========================================================================
-   Allo Sanitaire Express — main.js (vanilla, sobre)
-   Menu mobile · header au scroll · barre sticky · scroll-reveal ·
-   compteurs discrets · smooth scroll · année · prefers-reduced-motion
+   Allo Sanitaire Express 93 — main.js
+   Menu mobile · scroll-reveal · capture UTM/gclid · formulaire lead → Supabase
    ========================================================================== */
 (function () {
   "use strict";
 
-  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var SUPABASE_URL = "https://xmkvaetrejjqymahbgvi.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_tgF6sFFuzb5u0WhZSybqBg_X_79Xaeb";
 
   /* ---------- Année ---------- */
   document.querySelectorAll("[data-year]").forEach(function (el) {
-    el.textContent = "2026";
+    el.textContent = String(new Date().getFullYear());
   });
 
   /* ---------- Menu mobile ---------- */
   var toggle = document.querySelector(".nav-toggle");
-  var mobileNav = document.getElementById("mobile-nav");
+  var mobileNav = document.querySelector(".mobile-nav");
   if (toggle && mobileNav) {
-    var closeNav = function () {
-      toggle.setAttribute("aria-expanded", "false");
-      mobileNav.style.display = "none";
-    };
-    var openNav = function () {
-      toggle.setAttribute("aria-expanded", "true");
-      mobileNav.style.display = "block";
-    };
     toggle.addEventListener("click", function () {
-      var expanded = toggle.getAttribute("aria-expanded") === "true";
-      if (expanded) { closeNav(); } else { openNav(); }
-    });
-    mobileNav.querySelectorAll("a").forEach(function (a) {
-      a.addEventListener("click", closeNav);
-    });
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
-        closeNav();
-        toggle.focus();
-      }
-    });
-    window.addEventListener("resize", function () {
-      if (window.innerWidth > 860) { closeNav(); }
+      var open = mobileNav.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
     });
   }
 
-  /* ---------- Header au scroll (filet/ombre subtile) ---------- */
-  var header = document.querySelector(".site-header");
-  if (header) {
-    var onScroll = function () {
-      if (window.scrollY > 8) { header.classList.add("is-scrolled"); }
-      else { header.classList.remove("is-scrolled"); }
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-  }
-
-  /* ---------- Smooth scroll ancres ---------- */
-  document.querySelectorAll('a[href^="#"]').forEach(function (link) {
-    var id = link.getAttribute("href");
-    if (id.length < 2) { return; }
-    link.addEventListener("click", function (e) {
-      var target = document.querySelector(id);
-      if (!target) { return; }
-      e.preventDefault();
-      var top = target.getBoundingClientRect().top + window.scrollY - 90;
-      window.scrollTo({ top: top, behavior: reduceMotion ? "auto" : "smooth" });
-    });
-  });
-
-  /* ---------- Scroll-reveal sobre ---------- */
-  var reveals = document.querySelectorAll(".reveal");
+  /* ---------- Scroll reveal ---------- */
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var revealEls = document.querySelectorAll(".reveal");
   if (reduceMotion || !("IntersectionObserver" in window)) {
-    reveals.forEach(function (el) { el.classList.add("is-visible"); });
+    revealEls.forEach(function (el) { el.classList.add("visible"); });
   } else {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (entry.isIntersecting) {
-          entry.target.classList.add("is-visible");
+          entry.target.classList.add("visible");
           io.unobserve(entry.target);
         }
       });
-    }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
-    reveals.forEach(function (el) { io.observe(el); });
+    }, { threshold: 0.12 });
+    revealEls.forEach(function (el) { io.observe(el); });
   }
 
-  /* ---------- Compteurs discrets ---------- */
-  var counters = document.querySelectorAll("[data-count]");
-  var runCounter = function (el) {
-    var target = parseFloat(el.getAttribute("data-count"));
-    var suffix = el.getAttribute("data-suffix") || "";
-    var decimals = (el.getAttribute("data-decimals") | 0);
-    if (reduceMotion) {
-      el.textContent = target.toFixed(decimals) + suffix;
-      return;
-    }
-    var duration = 1300;
-    var start = null;
-    var step = function (ts) {
-      if (!start) { start = ts; }
-      var p = Math.min((ts - start) / duration, 1);
-      var eased = 1 - Math.pow(1 - p, 3);
-      var val = target * eased;
-      el.textContent = val.toFixed(decimals) + suffix;
-      if (p < 1) { requestAnimationFrame(step); }
-      else { el.textContent = target.toFixed(decimals) + suffix; }
-    };
-    requestAnimationFrame(step);
-  };
+  /* ---------- Capture UTM + gclid (persistant sur la session) ---------- */
+  var TRACK_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid"];
+  try {
+    var params = new URLSearchParams(window.location.search);
+    TRACK_KEYS.forEach(function (k) {
+      var v = params.get(k);
+      if (v) sessionStorage.setItem("ase_" + k, v);
+    });
+  } catch (e) { /* stockage indisponible : on continue sans tracking */ }
 
-  if (counters.length) {
-    if (reduceMotion || !("IntersectionObserver" in window)) {
-      counters.forEach(runCounter);
-    } else {
-      var cio = new IntersectionObserver(function (entries) {
-        entries.forEach(function (entry) {
-          if (entry.isIntersecting) {
-            runCounter(entry.target);
-            cio.unobserve(entry.target);
-          }
-        });
-      }, { threshold: 0.5 });
-      counters.forEach(function (el) { cio.observe(el); });
-    }
+  function getTracking() {
+    var out = {};
+    TRACK_KEYS.forEach(function (k) {
+      try {
+        var v = sessionStorage.getItem("ase_" + k);
+        if (v) out[k] = v;
+      } catch (e) { /* ignore */ }
+    });
+    return out;
   }
+
+  /* ---------- Formulaire lead → Supabase ---------- */
+  document.querySelectorAll("form[data-lead-form]").forEach(function (form) {
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+
+      var msg = form.querySelector(".form-msg");
+      var btn = form.querySelector('button[type="submit"]');
+      var fd = new FormData(form);
+
+      /* Honeypot anti-spam */
+      if (fd.get("site_web")) return;
+
+      var lead = {
+        nom: (fd.get("nom") || "").toString().trim(),
+        telephone: (fd.get("telephone") || "").toString().trim(),
+        email: (fd.get("email") || "").toString().trim() || null,
+        code_postal: (fd.get("code_postal") || "").toString().trim() || null,
+        ville: (fd.get("ville") || "").toString().trim() || null,
+        type_projet: (fd.get("type_projet") || "").toString() || null,
+        delai: (fd.get("delai") || "").toString() || null,
+        message: (fd.get("message") || "").toString().trim() || null,
+        page: window.location.pathname + window.location.search,
+        user_agent: navigator.userAgent
+      };
+
+      var tracking = getTracking();
+      Object.keys(tracking).forEach(function (k) { lead[k] = tracking[k]; });
+
+      if (!lead.nom || !lead.telephone) {
+        if (msg) { msg.className = "form-msg error"; msg.textContent = "Merci d'indiquer votre nom et votre téléphone."; }
+        return;
+      }
+      if (!/^(\+33|0)[1-9]([ .-]?[0-9]{2}){4}$/.test(lead.telephone.replace(/\s/g, " "))) {
+        if (msg) { msg.className = "form-msg error"; msg.textContent = "Le numéro de téléphone semble invalide (ex. 06 12 34 56 78)."; }
+        return;
+      }
+
+      if (msg) { msg.className = "form-msg sending"; msg.textContent = "Envoi de votre demande…"; }
+      if (btn) { btn.disabled = true; }
+
+      fetch(SUPABASE_URL + "/rest/v1/leads", {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify(lead)
+      }).then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        window.location.href = "merci.html";
+      }).catch(function () {
+        if (btn) { btn.disabled = false; }
+        if (msg) {
+          msg.className = "form-msg error";
+          msg.innerHTML = "Une erreur est survenue. Réessayez ou appelez-nous directement au <a href=\"tel:0766325713\"><strong>07 66 32 57 13</strong></a>.";
+        }
+      });
+    });
+  });
 })();

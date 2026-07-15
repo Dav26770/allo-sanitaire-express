@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /merci.html
 
-Sitemap: https://[DOMAINE]/sitemap.xml
+Sitemap: https://allo-sanitaire-express93.fr/sitemap.xml
