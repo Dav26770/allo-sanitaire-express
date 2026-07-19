@@ -501,6 +501,15 @@ h3 { font-size: 1.28rem; font-family: var(--font-body); font-weight: 700; color:
 .footer-brand p { font-size: .9rem; margin-top: 14px; max-width: 34ch; }
 .footer-tel { display: inline-flex; align-items: center; gap: 9px; margin-top: 18px; font-weight: 700; color: #fff !important; font-size: 1.08rem; }
 .footer-tel svg { width: 18px; height: 18px; color: var(--laiton); }
+.footer-trust {
+  border-top: 1px solid rgba(255, 255, 255, .12); padding: 20px 0; display: flex;
+  justify-content: center; gap: 14px 34px; flex-wrap: wrap;
+}
+.footer-trust span {
+  display: inline-flex; align-items: center; gap: 8px; font-size: .84rem; font-weight: 600; color: #C7D8E8;
+}
+.footer-trust svg { width: 16px; height: 16px; color: var(--laiton); flex: none; }
+
 .footer-bottom {
   border-top: 1px solid rgba(255, 255, 255, .12); padding-top: 24px; display: flex;
   justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; font-size: .82rem;
