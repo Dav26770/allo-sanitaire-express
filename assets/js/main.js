@@ -59,6 +59,14 @@
       });
     }, { threshold: 0.12 });
     revealEls.forEach(function (el) { io.observe(el); });
+    /* Filet de sécurité : si l'observer ne s'est jamais déclenché (webview,
+       onglet en arrière-plan…), on révèle tout pour ne jamais laisser une
+       page blanche. */
+    setTimeout(function () {
+      if (!document.querySelector(".reveal.visible")) {
+        revealEls.forEach(function (el) { el.classList.add("visible"); });
+      }
+    }, 1600);
   }
 
   /* ==========================================================================
@@ -108,7 +116,8 @@
       var ua = navigator.userAgent || "";
       if (/HeadlessChrome|PhantomJS|Electron|puppeteer|playwright|selenium|bot|crawl|spider|scrape/i.test(ua)) return "ua";
       if (!navigator.languages || navigator.languages.length === 0) return "no-lang";
-      if (window.outerWidth === 0 && window.outerHeight === 0) return "no-window";
+      /* NB : pas de test outerWidth/outerHeight — les webviews in-app (Instagram,
+         Facebook…) renvoient parfois 0 et on bannirait de vrais clients. */
     } catch (e) { /* ignore */ }
     return null;
   }
