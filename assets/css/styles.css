@@ -74,9 +74,10 @@ h3 { font-size: 1.28rem; font-family: var(--font-body); font-weight: 700; color:
 .btn:hover { transform: translateY(-2px); }
 
 .btn-primary {
-  background: var(--cuivre); color: #fff; box-shadow: 0 8px 22px rgba(245, 130, 32, .38);
+  background: linear-gradient(135deg, var(--cuivre) 0%, var(--cuivre-fonce) 100%);
+  color: #fff; box-shadow: 0 8px 22px rgba(245, 130, 32, .38);
 }
-.btn-primary:hover { background: var(--cuivre-fonce); color: #fff; box-shadow: 0 12px 28px rgba(245, 130, 32, .48); }
+.btn-primary:hover { background: linear-gradient(135deg, var(--cuivre-fonce) 0%, #C96208 100%); color: #fff; box-shadow: 0 12px 28px rgba(245, 130, 32, .48); }
 
 .btn-dark { background: var(--lagune); color: #fff; }
 .btn-dark:hover { background: var(--lagune-fonce); color: #fff; }
@@ -224,10 +225,69 @@ h3 { font-size: 1.28rem; font-family: var(--font-body); font-weight: 700; color:
 .form-msg { font-size: .9rem; font-weight: 600; display: none; padding: 11px 14px; border-radius: var(--radius-sm); }
 .form-msg.error { display: block; background: #FDEEE2; color: #B4550A; }
 .form-msg.sending { display: block; background: var(--sauge); color: var(--lagune-fonce); }
+.form-msg.success { display: block; background: #E7F6EC; color: #1F7A4D; }
+
+/* Champs requis + vérificateurs (téléphone / e-mail) */
+.req { color: var(--cuivre); font-weight: 800; }
+.field.invalid input, .field.invalid select, .field.invalid textarea {
+  border-color: #D64545; background: #FDF5F5;
+}
+.field.invalid input:focus, .field.invalid select:focus, .field.invalid textarea:focus {
+  border-color: #D64545; box-shadow: 0 0 0 3px rgba(214, 69, 69, .14);
+}
+.field-msg { display: block; margin-top: 5px; font-size: .78rem; font-weight: 600; color: #B23434; }
+.field.valid input {
+  border-color: #3E9B6B;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%233E9B6B' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 38px;
+}
+
+/* Réassurance sécurité sous le bouton d'envoi */
+.form-secure {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  font-size: .76rem; font-weight: 600; color: var(--encre-2); margin-top: 8px; text-align: center;
+}
+.form-secure svg { width: 14px; height: 14px; color: #3E9B6B; flex: none; }
+
+/* Bandeau garanties intégré à la carte formulaire */
+.lead-card-flag {
+  display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap;
+  background: var(--sauge); color: var(--lagune-fonce); font-size: .78rem; font-weight: 700;
+  padding: 8px 14px; border-radius: var(--radius-sm); margin-bottom: 16px;
+}
+.lead-card-flag svg { width: 15px; height: 15px; color: var(--lagune); flex: none; }
 
 .lead-form .btn { width: 100%; }
 .lead-note { text-align: center; font-size: .8rem; color: var(--encre-2); margin-top: 2px; }
 .lead-note strong { color: var(--lagune); }
+
+/* --------------------------------------------------------------------------
+   Identité de marque — badge avis & marques installées
+   -------------------------------------------------------------------------- */
+.rating-badge {
+  display: inline-flex; align-items: center; gap: 12px; margin-top: 26px;
+  background: #fff; border-radius: 999px; padding: 10px 20px 10px 16px; box-shadow: var(--shadow);
+  border: 1px solid var(--ligne);
+}
+.rating-badge .stars { color: var(--cuivre); letter-spacing: 2px; font-size: 1.02rem; }
+.rating-badge strong { font-size: .95rem; color: var(--lagune-fonce); }
+.rating-badge span { font-size: .8rem; color: var(--encre-2); font-weight: 600; }
+
+.brand-strip {
+  border-top: 1px solid var(--ligne); border-bottom: 1px solid var(--ligne);
+  background: var(--blanc); padding: 26px 0;
+}
+.brand-strip .container {
+  display: flex; align-items: center; justify-content: center; gap: 18px 44px; flex-wrap: wrap;
+}
+.brand-strip .strip-label {
+  font-size: .74rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--encre-2);
+}
+.brand-strip .strip-brand {
+  font-family: var(--font-display); font-size: 1.35rem; color: var(--lagune-fonce); opacity: .55;
+  transition: opacity .2s ease;
+}
+.brand-strip .strip-brand:hover { opacity: 1; }
 
 /* --------------------------------------------------------------------------
    Sections

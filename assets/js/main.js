@@ -1,12 +1,23 @@
 /* ==========================================================================
    Allo Sanitaire Express 93 — main.js
-   Menu mobile · scroll-reveal · capture UTM/gclid · formulaire lead → Supabase
+   Menu mobile · scroll-reveal · capture UTM/gclid · garde anti-bot intégrée
+   · validation stricte (tél FR + e-mail) · formulaire lead → Supabase
    ========================================================================== */
 (function () {
   "use strict";
 
   var SUPABASE_URL = "https://xmkvaetrejjqymahbgvi.supabase.co";
   var SUPABASE_KEY = "sb_publishable_tgF6sFFuzb5u0WhZSybqBg_X_79Xaeb";
+
+  /* Délai minimal (ms) entre l'affichage de la page et un envoi humain plausible. */
+  var MIN_FILL_MS = 3000;
+  /* Nombre minimal d'interactions réelles (clavier / souris / tactile) avant envoi. */
+  var MIN_INTERACTIONS = 3;
+  /* Nombre max d'envois par session avant blocage silencieux. */
+  var MAX_SUBMITS = 3;
+  var BAN_KEY = "ase_ban";
+
+  var pageLoadedAt = Date.now();
 
   /* ---------- Année ---------- */
   document.querySelectorAll("[data-year]").forEach(function (el) {
@@ -50,6 +61,162 @@
     revealEls.forEach(function (el) { io.observe(el); });
   }
 
+  /* ==========================================================================
+     GARDE ANTI-BOT
+     Signaux durs (navigateur piloté, UA headless) → bannissement immédiat.
+     Signaux comportementaux (envoi trop rapide, zéro interaction, honeypot,
+     rafale d'envois) → bannissement au moment du submit.
+     Un banni reçoit un FAUX succès silencieux : aucune donnée envoyée à
+     Supabase, aucune redirection vers merci.html (donc aucune conversion
+     Google Ads comptée). Le ban est persistant via localStorage + cookie.
+     ========================================================================== */
+
+  var interactions = 0;
+  ["pointerdown", "keydown", "touchstart", "mousemove", "scroll"].forEach(function (evt) {
+    window.addEventListener(evt, function () { interactions++; }, { passive: true, once: false });
+  });
+
+  function store(key, val) {
+    try { localStorage.setItem(key, val); } catch (e) { /* ignore */ }
+    try { document.cookie = key + "=" + val + ";path=/;max-age=31536000;SameSite=Lax"; } catch (e) { /* ignore */ }
+  }
+  function readStore(key) {
+    try { var v = localStorage.getItem(key); if (v) return v; } catch (e) { /* ignore */ }
+    try {
+      var m = document.cookie.match(new RegExp("(?:^|; )" + key + "=([^;]*)"));
+      if (m) return m[1];
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  function banBot(reason) {
+    store(BAN_KEY, reason || "1");
+    /* Signale le bot à GTM : permet d'exclure ce trafic dans Google Ads / GA4. */
+    try {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({ event: "bot_detected", bot_reason: reason || "unknown" });
+    } catch (e) { /* ignore */ }
+  }
+
+  function isBanned() {
+    return !!readStore(BAN_KEY);
+  }
+
+  function hardBotSignal() {
+    try {
+      if (navigator.webdriver) return "webdriver";
+      var ua = navigator.userAgent || "";
+      if (/HeadlessChrome|PhantomJS|Electron|puppeteer|playwright|selenium|bot|crawl|spider|scrape/i.test(ua)) return "ua";
+      if (!navigator.languages || navigator.languages.length === 0) return "no-lang";
+      if (window.outerWidth === 0 && window.outerHeight === 0) return "no-window";
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /* Détection au chargement : un navigateur piloté est banni tout de suite. */
+  var hardSignal = hardBotSignal();
+  if (hardSignal) banBot(hardSignal);
+
+  function submitCount() {
+    try { return parseInt(sessionStorage.getItem("ase_submits") || "0", 10) || 0; } catch (e) { return 0; }
+  }
+  function bumpSubmitCount() {
+    try { sessionStorage.setItem("ase_submits", String(submitCount() + 1)); } catch (e) { /* ignore */ }
+  }
+
+  /* ==========================================================================
+     VALIDATION — vérificateurs téléphone FR + e-mail
+     ========================================================================== */
+
+  /* Format FR : 0X ou +33X suivi de 8 chiffres, séparateurs tolérés. */
+  var RE_TEL_FR = /^(?:\+33|0033|0)\s*[1-9](?:[\s.\-]?\d{2}){4}$/;
+  var RE_EMAIL = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
+
+  /* Domaines d'e-mails jetables les plus courants : refusés. */
+  var DISPOSABLE = [
+    "yopmail.com", "yopmail.fr", "mailinator.com", "jetable.org", "jetable.com",
+    "tempmail.com", "temp-mail.org", "guerrillamail.com", "10minutemail.com",
+    "throwawaymail.com", "trashmail.com", "maildrop.cc", "getnada.com",
+    "sharklasers.com", "dispostable.com", "fakeinbox.com", "mytemp.email"
+  ];
+
+  function normalizeTel(v) {
+    return String(v || "").replace(/[\s.\-()]/g, "");
+  }
+
+  function isFakeNumber(digits) {
+    /* 10 fois le même chiffre, ou suites évidentes. */
+    if (/^(\d)\1+$/.test(digits)) return true;
+    var body = digits.slice(-8);
+    if (/^(\d)\1+$/.test(body)) return true;
+    if (["0123456789", "0612345678", "0712345678", "0102030405", "0611111111", "0600000000", "0699999999", "0700000000", "0799999999"].indexOf(digits) !== -1) return true;
+    /* Paires identiques répétées : 06 12 12 12 12 */
+    var pairs = body.match(/\d{2}/g) || [];
+    if (pairs.length === 4 && pairs[0] === pairs[1] && pairs[1] === pairs[2] && pairs[2] === pairs[3]) return true;
+    return false;
+  }
+
+  function checkTel(v) {
+    var raw = String(v || "").trim();
+    if (!raw) return "Merci d'indiquer votre numéro de téléphone.";
+    if (!RE_TEL_FR.test(raw)) return "Numéro invalide — format attendu : 06 12 34 56 78 ou +33 6 12 34 56 78.";
+    var digits = normalizeTel(raw).replace(/^\+33|^0033/, "0");
+    if (digits.length !== 10) return "Le numéro doit comporter 10 chiffres.";
+    if (isFakeNumber(digits)) return "Ce numéro ne semble pas être un vrai numéro. Merci de vérifier.";
+    return null;
+  }
+
+  function checkEmail(v) {
+    var raw = String(v || "").trim().toLowerCase();
+    if (!raw) return "Merci d'indiquer votre adresse e-mail.";
+    if (!RE_EMAIL.test(raw)) return "Adresse e-mail invalide — exemple : vous@exemple.fr.";
+    var domain = raw.split("@")[1] || "";
+    if (DISPOSABLE.indexOf(domain) !== -1) return "Les adresses e-mail temporaires ne sont pas acceptées.";
+    if (/\.\.|@\./.test(raw)) return "Adresse e-mail invalide — vérifiez les points.";
+    return null;
+  }
+
+  function checkName(v, label) {
+    var raw = String(v || "").trim();
+    if (raw.length < 2) return "Merci d'indiquer votre " + label + ".";
+    if (!/[A-Za-zÀ-ÖØ-öø-ÿ]{2,}/.test(raw)) return "Votre " + label + " semble invalide.";
+    if (/https?:|www\.|<|>/i.test(raw)) return "Votre " + label + " semble invalide.";
+    return null;
+  }
+
+  /* ---------- Affichage des erreurs par champ ---------- */
+  function setFieldError(input, message) {
+    var field = input.closest(".field");
+    if (!field) return;
+    var msg = field.querySelector(".field-msg");
+    if (message) {
+      field.classList.add("invalid");
+      field.classList.remove("valid");
+      input.setAttribute("aria-invalid", "true");
+      if (!msg) {
+        msg = document.createElement("small");
+        msg.className = "field-msg";
+        field.appendChild(msg);
+      }
+      msg.textContent = message;
+    } else {
+      field.classList.remove("invalid");
+      field.classList.add("valid");
+      input.removeAttribute("aria-invalid");
+      if (msg) msg.remove();
+    }
+  }
+
+  function validatorFor(input) {
+    switch (input.name) {
+      case "nom": return function (v) { return checkName(v, "nom"); };
+      case "prenom": return function (v) { return checkName(v, "prénom"); };
+      case "telephone": return checkTel;
+      case "email": return checkEmail;
+      default: return null;
+    }
+  }
+
   /* ---------- Capture UTM + gclid (persistant sur la session) ---------- */
   var TRACK_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid"];
   try {
@@ -71,8 +238,29 @@
     return out;
   }
 
-  /* ---------- Formulaire lead → Supabase ---------- */
+  /* ==========================================================================
+     Formulaire lead → Supabase
+     ========================================================================== */
   document.querySelectorAll("form[data-lead-form]").forEach(function (form) {
+
+    /* Validation en direct : l'erreur disparaît dès que le champ est corrigé. */
+    form.addEventListener("input", function (ev) {
+      var input = ev.target;
+      if (!input || !input.name) return;
+      var validator = validatorFor(input);
+      if (!validator) return;
+      var field = input.closest(".field");
+      if (field && (field.classList.contains("invalid") || field.classList.contains("valid"))) {
+        setFieldError(input, validator(input.value));
+      }
+    });
+    form.addEventListener("focusout", function (ev) {
+      var input = ev.target;
+      if (!input || !input.name || !String(input.value || "").trim()) return;
+      var validator = validatorFor(input);
+      if (validator) setFieldError(input, validator(input.value));
+    });
+
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
 
@@ -80,13 +268,47 @@
       var btn = form.querySelector('button[type="submit"]');
       var fd = new FormData(form);
 
-      /* Honeypot anti-spam */
-      if (fd.get("site_web")) return;
+      function fakeSuccess() {
+        /* Faux succès pour les bots : pas d'envoi, pas de redirection merci.html,
+           donc pas de conversion Google Ads comptée. */
+        if (msg) { msg.className = "form-msg success"; msg.textContent = "Demande reçue ! Nous revenons vers vous très vite."; }
+        if (btn) btn.disabled = true;
+      }
+
+      /* --- Garde anti-bot au moment de l'envoi --- */
+      if (isBanned()) { fakeSuccess(); return; }
+      if (fd.get("site_web")) { banBot("honeypot"); fakeSuccess(); return; }
+      var hard = hardBotSignal();
+      if (hard) { banBot(hard); fakeSuccess(); return; }
+      if (Date.now() - pageLoadedAt < MIN_FILL_MS) { banBot("too-fast"); fakeSuccess(); return; }
+      if (interactions < MIN_INTERACTIONS) { banBot("no-interaction"); fakeSuccess(); return; }
+      if (submitCount() >= MAX_SUBMITS) { banBot("burst"); fakeSuccess(); return; }
+
+      /* --- Validation stricte des champs --- */
+      var errors = 0;
+      var firstInvalid = null;
+      ["prenom", "nom", "telephone", "email"].forEach(function (name) {
+        var input = form.querySelector('[name="' + name + '"]');
+        if (!input) return;
+        var validator = validatorFor(input);
+        var error = validator ? validator(input.value) : null;
+        setFieldError(input, error);
+        if (error) {
+          errors++;
+          if (!firstInvalid) firstInvalid = input;
+        }
+      });
+
+      if (errors) {
+        if (msg) { msg.className = "form-msg error"; msg.textContent = "Merci de corriger les champs signalés en rouge."; }
+        if (firstInvalid) firstInvalid.focus();
+        return;
+      }
 
       var lead = {
-        nom: (fd.get("nom") || "").toString().trim(),
+        nom: ((fd.get("prenom") || "").toString().trim() + " " + (fd.get("nom") || "").toString().trim()).trim(),
         telephone: (fd.get("telephone") || "").toString().trim(),
-        email: (fd.get("email") || "").toString().trim() || null,
+        email: (fd.get("email") || "").toString().trim().toLowerCase() || null,
         code_postal: (fd.get("code_postal") || "").toString().trim() || null,
         ville: (fd.get("ville") || "").toString().trim() || null,
         type_projet: (fd.get("type_projet") || "").toString() || null,
@@ -99,17 +321,9 @@
       var tracking = getTracking();
       Object.keys(tracking).forEach(function (k) { lead[k] = tracking[k]; });
 
-      if (!lead.nom || !lead.telephone) {
-        if (msg) { msg.className = "form-msg error"; msg.textContent = "Merci d'indiquer votre nom et votre téléphone."; }
-        return;
-      }
-      if (!/^(\+33|0)[1-9]([ .-]?[0-9]{2}){4}$/.test(lead.telephone.replace(/\s/g, " "))) {
-        if (msg) { msg.className = "form-msg error"; msg.textContent = "Le numéro de téléphone semble invalide (ex. 06 12 34 56 78)."; }
-        return;
-      }
-
-      if (msg) { msg.className = "form-msg sending"; msg.textContent = "Envoi de votre demande…"; }
+      if (msg) { msg.className = "form-msg sending"; msg.textContent = "Envoi sécurisé de votre demande…"; }
       if (btn) { btn.disabled = true; }
+      bumpSubmitCount();
 
       fetch(SUPABASE_URL + "/rest/v1/leads", {
         method: "POST",
