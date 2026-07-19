@@ -239,6 +239,125 @@
   }
 
   /* ==========================================================================
+     Formulaire catalogue → Supabase + téléchargement du PDF
+     Même garde anti-bot et mêmes vérificateurs que le formulaire devis.
+     Le lead part avec type_projet "catalogue-douches" : le script Google Sheet
+     lui envoie le catalogue par e-mail. Le PDF se télécharge aussi tout de suite.
+     ========================================================================== */
+  var CATALOGUE_PDF = "catalogue-douches.pdf";
+  var CATALOGUE_FICHIER = "Allo Sanitaire Express 93 — Catalogue Douches.pdf";
+
+  document.querySelectorAll("form[data-catalogue-form]").forEach(function (form) {
+    form.addEventListener("focusout", function (ev) {
+      var input = ev.target;
+      if (!input || !input.name || !String(input.value || "").trim()) return;
+      var validator = validatorFor(input);
+      if (validator) setFieldError(input, validator(input.value));
+    });
+    form.addEventListener("input", function (ev) {
+      var input = ev.target;
+      if (!input || !input.name) return;
+      var validator = validatorFor(input);
+      if (!validator) return;
+      var field = input.closest(".field");
+      if (field && (field.classList.contains("invalid") || field.classList.contains("valid"))) {
+        setFieldError(input, validator(input.value));
+      }
+    });
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+
+      var msg = form.querySelector(".form-msg");
+      var btn = form.querySelector('button[type="submit"]');
+      var fd = new FormData(form);
+
+      function fakeSuccess() {
+        if (msg) { msg.className = "form-msg success"; msg.textContent = "C'est envoyé ! Surveillez votre boîte mail."; }
+        if (btn) btn.disabled = true;
+      }
+
+      /* --- Garde anti-bot --- */
+      if (isBanned()) { fakeSuccess(); return; }
+      if (fd.get("site_web")) { banBot("honeypot"); fakeSuccess(); return; }
+      var hard = hardBotSignal();
+      if (hard) { banBot(hard); fakeSuccess(); return; }
+      if (Date.now() - pageLoadedAt < MIN_FILL_MS) { banBot("too-fast"); fakeSuccess(); return; }
+      if (interactions < MIN_INTERACTIONS) { banBot("no-interaction"); fakeSuccess(); return; }
+      if (submitCount() >= MAX_SUBMITS) { banBot("burst"); fakeSuccess(); return; }
+
+      /* --- Validation --- */
+      var errors = 0;
+      var firstInvalid = null;
+      ["prenom", "telephone", "email"].forEach(function (name) {
+        var input = form.querySelector('[name="' + name + '"]');
+        if (!input) return;
+        var validator = validatorFor(input);
+        var error = validator ? validator(input.value) : null;
+        setFieldError(input, error);
+        if (error) { errors++; if (!firstInvalid) firstInvalid = input; }
+      });
+      if (errors) {
+        if (msg) { msg.className = "form-msg error"; msg.textContent = "Merci de corriger les champs signalés en rouge."; }
+        if (firstInvalid) firstInvalid.focus();
+        return;
+      }
+
+      var lead = {
+        nom: (fd.get("prenom") || "").toString().trim(),
+        telephone: (fd.get("telephone") || "").toString().trim(),
+        email: (fd.get("email") || "").toString().trim().toLowerCase(),
+        type_projet: "catalogue-douches",
+        message: "Demande du catalogue douches (PDF)",
+        page: window.location.pathname + window.location.search,
+        user_agent: navigator.userAgent
+      };
+      var tracking = getTracking();
+      Object.keys(tracking).forEach(function (k) { lead[k] = tracking[k]; });
+
+      if (msg) { msg.className = "form-msg sending"; msg.textContent = "Préparation de votre catalogue…"; }
+      if (btn) btn.disabled = true;
+      bumpSubmitCount();
+
+      fetch(SUPABASE_URL + "/rest/v1/leads", {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify(lead)
+      }).then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        try {
+          window.dataLayer = window.dataLayer || [];
+          window.dataLayer.push({ event: "catalogue_lead" });
+        } catch (e) { /* ignore */ }
+        /* Téléchargement immédiat + bascule de la carte en mode succès */
+        var a = document.createElement("a");
+        a.href = CATALOGUE_PDF;
+        a.download = CATALOGUE_FICHIER;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        var card = form.closest("[data-catalogue-card]");
+        if (card) card.classList.add("done");
+        if (msg) {
+          msg.className = "form-msg success";
+          msg.innerHTML = "Votre catalogue se télécharge ! Il arrive aussi par e-mail dans quelques minutes (pensez au dossier spam la première fois). <a href=\"" + CATALOGUE_PDF + "\" download=\"" + CATALOGUE_FICHIER + "\"><strong>Re-télécharger le PDF</strong></a>";
+        }
+      }).catch(function () {
+        if (btn) btn.disabled = false;
+        if (msg) {
+          msg.className = "form-msg error";
+          msg.innerHTML = "Une erreur est survenue. Réessayez ou appelez-nous au <a href=\"tel:0766325713\"><strong>07 66 32 57 13</strong></a>.";
+        }
+      });
+    });
+  });
+
+  /* ==========================================================================
      Formulaire lead → Supabase
      ========================================================================== */
   document.querySelectorAll("form[data-lead-form]").forEach(function (form) {

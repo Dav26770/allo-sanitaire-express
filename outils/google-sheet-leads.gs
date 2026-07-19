@@ -22,6 +22,12 @@ var STATUTS = ['Nouveau', 'Appelé', 'RDV pris', 'Devis envoyé', 'Gagné', 'Per
 var MARINE = '#0E2B49';
 var ORANGE = '#F58220';
 
+/* Catalogue PDF envoyé automatiquement aux leads "catalogue-douches" */
+var SITE_URL = 'https://allo-sanitaire-express93.fr';
+var CATALOGUE_URL = SITE_URL + '/catalogue-douches.pdf';
+var CATALOGUE_NOM_FICHIER = 'Allo Sanitaire Express 93 — Catalogue Douches.pdf';
+var TEL_AFFICHE = '07 66 32 57 13';
+
 function installation() {
   var sheet = feuille_();
 
@@ -87,6 +93,7 @@ function synchroniserLeads() {
 
   var nouvelles = [];
   var resume = [];
+  var demandesCatalogue = [];
   leads.forEach(function (lead) {
     if (existants[String(lead.id)]) return;
     nouvelles.push(CHAMPS.map(function (c) {
@@ -96,6 +103,7 @@ function synchroniserLeads() {
     }));
     resume.push('• ' + (lead.nom || '?') + ' — ' + (lead.telephone || '') +
       (lead.type_projet ? ' — ' + lead.type_projet : '') + (lead.ville ? ' — ' + lead.ville : ''));
+    if (lead.type_projet === 'catalogue-douches' && lead.email) demandesCatalogue.push(lead);
   });
 
   if (nouvelles.length) {
@@ -112,7 +120,49 @@ function synchroniserLeads() {
         );
       } catch (e) { /* quota email atteint : on continue sans bloquer */ }
     }
+
+    // Envoi du catalogue aux nouveaux leads "catalogue-douches"
+    demandesCatalogue.forEach(function (lead) {
+      try { envoyerCatalogue_(lead); } catch (e) { /* on n'interrompt pas la synchro */ }
+    });
   }
+}
+
+/**
+ * Envoie le catalogue PDF par e-mail au lead (appelé pour chaque nouveau
+ * lead "catalogue-douches" — jamais deux fois grâce au dédoublonnage par ID).
+ */
+function envoyerCatalogue_(lead) {
+  var prenom = String(lead.nom || '').split(' ')[0] || 'Bonjour';
+  var pdf = UrlFetchApp.fetch(CATALOGUE_URL).getBlob().setName(CATALOGUE_NOM_FICHIER);
+
+  var htmlBody =
+    '<div style="font-family:Arial,Helvetica,sans-serif;color:#16334F;max-width:560px;margin:0 auto">' +
+    '<div style="background:' + MARINE + ';padding:22px 28px;border-radius:12px 12px 0 0">' +
+    '<span style="color:#fff;font-size:18px;font-weight:bold">Allo Sanitaire Express <span style="background:' + ORANGE + ';color:#fff;border-radius:6px;padding:1px 7px;font-size:13px">93</span></span>' +
+    '</div>' +
+    '<div style="background:#F5F8FC;padding:28px;border-radius:0 0 12px 12px;border:1px solid #DDE6EF;border-top:none">' +
+    '<p style="font-size:16px">Bonjour ' + prenom + ',</p>' +
+    '<p>Voici votre <strong>Catalogue Douches 2026</strong> en pièce jointe : modèles de douches italiennes, budgets réels constatés sur nos chantiers et conseils de nos artisans.</p>' +
+    '<p style="margin:24px 0"><a href="' + CATALOGUE_URL + '" style="background:' + ORANGE + ';color:#fff;text-decoration:none;font-weight:bold;padding:13px 26px;border-radius:999px;display:inline-block">Télécharger le catalogue</a></p>' +
+    '<p>Un projet de douche ou de salle de bain ? Un conseiller peut vous rappeler pour une <strong>étude gratuite</strong> et un <strong>devis ferme sous 24h</strong>.</p>' +
+    '<p style="margin:20px 0 6px"><strong>📞 ' + TEL_AFFICHE + '</strong> — 7j/7<br>' +
+    '<a href="' + SITE_URL + '/contact.html" style="color:#1B4F82">Demander mon devis gratuit →</a></p>' +
+    '<hr style="border:none;border-top:1px solid #DDE6EF;margin:22px 0">' +
+    '<p style="font-size:12px;color:#4A6076">Vous recevez cet e-mail car vous avez demandé notre catalogue sur ' +
+    '<a href="' + SITE_URL + '" style="color:#1B4F82">allo-sanitaire-express93.fr</a>. ' +
+    'Vos données ne sont jamais revendues.</p>' +
+    '</div></div>';
+
+  MailApp.sendEmail({
+    to: String(lead.email),
+    subject: 'Votre Catalogue Douches 2026 — Allo Sanitaire Express 93',
+    htmlBody: htmlBody,
+    body: 'Bonjour ' + prenom + ',\n\nVoici votre Catalogue Douches 2026 : ' + CATALOGUE_URL +
+      '\n\nUn projet ? Étude gratuite et devis ferme sous 24h au ' + TEL_AFFICHE + '.\n\nAllo Sanitaire Express 93',
+    attachments: [pdf],
+    name: 'Allo Sanitaire Express 93'
+  });
 }
 
 function construireStats_() {
