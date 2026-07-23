@@ -4,6 +4,16 @@
  * Les nouveaux leads arrivent toutes les 5 minutes dans l'onglet "Leads",
  * les statistiques se mettent à jour dans l'onglet "Stats",
  * et un email est envoyé à chaque nouveau lead.
+ *
+ * ⚠️ MISE À JOUR « qualification » (juil. 2026) : nouvelles colonnes
+ * Budget / Occupant / Score / Qualité (🔥 Chaud · 🌤 Tiède · ❄️ Froid).
+ * Après avoir recollé ce script :
+ *   1. Lancer d'abord la migration outils/migration-002-qualification.sql
+ *      dans Supabase (sinon les nouvelles colonnes resteront vides).
+ *   2. Vider l'onglet "Leads" (tout sauf rien : supprimer toutes les lignes),
+ *      puis exécuter installation() : les leads se réimportent tout seuls
+ *      au nouveau format. Attention : les statuts saisis à la main
+ *      (Appelé, RDV pris…) seront remis à "Nouveau".
  */
 
 var SUPABASE_URL = 'https://xmkvaetrejjqymahbgvi.supabase.co';
@@ -13,11 +23,14 @@ var CODE_EXPORT = 'REMPLACE_PAR_TON_CODE_EXPORT';
 var SHEET_ID = '1rqHyq35W3h4H0UO1ktRGi-Piw3RLVOFIRjY199Rxe2c';
 var FEUILLE = 'Leads';
 var CHAMPS = ['id', 'created_at', 'nom', 'telephone', 'email', 'code_postal', 'ville',
-  'type_projet', 'delai', 'message', 'page', 'utm_source', 'utm_medium', 'utm_campaign',
+  'type_projet', 'delai', 'budget', 'occupant', 'score', 'qualite',
+  'message', 'page', 'utm_source', 'utm_medium', 'utm_campaign',
   'utm_term', 'utm_content', 'gclid', 'statut'];
 var ENTETES = ['ID', 'Date', 'Nom', 'Téléphone', 'Email', 'Code postal', 'Ville',
-  'Projet', 'Délai', 'Message', 'Page', 'Source', 'Medium', 'Campagne',
+  'Projet', 'Délai', 'Budget', 'Occupant', 'Score', 'Qualité',
+  'Message', 'Page', 'Source', 'Medium', 'Campagne',
   'Terme', 'Contenu', 'GCLID', 'Statut'];
+var QUALITES = { chaud: '🔥 Chaud', tiede: '🌤 Tiède', froid: '❄️ Froid' };
 var STATUTS = ['Nouveau', 'Appelé', 'RDV pris', 'Devis envoyé', 'Gagné', 'Perdu'];
 var MARINE = '#0E2B49';
 var ORANGE = '#F58220';
@@ -38,23 +51,32 @@ function installation() {
   sheet.setRowHeight(1, 34);
 
   // Largeurs de colonnes
-  var largeurs = [90, 130, 150, 120, 190, 90, 130, 170, 120, 280, 150, 110, 100, 130, 100, 100, 110, 120];
+  var largeurs = [90, 130, 150, 120, 190, 90, 130, 170, 130, 140, 110, 70, 95, 280, 150, 110, 100, 130, 100, 100, 110, 120];
   largeurs.forEach(function (l, i) { sheet.setColumnWidth(i + 1, l); });
 
-  // Téléphone en texte (garde le 0), date au bon format
+  // Téléphone en texte (garde le 0), date au bon format, score numérique
   sheet.getRange('D2:D').setNumberFormat('@');
   sheet.getRange('B2:B').setNumberFormat('dd/mm/yyyy hh:mm');
+  sheet.getRange('L2:L').setNumberFormat('0');
 
   // Menu déroulant Statut
   var regleStatut = SpreadsheetApp.newDataValidation().requireValueInList(STATUTS, true).setAllowInvalid(true).build();
-  sheet.getRange('R2:R').setDataValidation(regleStatut);
+  sheet.getRange('V2:V').setDataValidation(regleStatut);
 
   // Couleurs par statut
-  var plageStatut = sheet.getRange('R2:R');
+  var plageStatut = sheet.getRange('V2:V');
   var couleurs = { 'Nouveau': '#FDEBD0', 'Appelé': '#FCF3CF', 'RDV pris': '#D6EAF8', 'Devis envoyé': '#E8DAEF', 'Gagné': '#D5F5E3', 'Perdu': '#EAECEE' };
   var regles = Object.keys(couleurs).map(function (s) {
     return SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo(s).setBackground(couleurs[s]).setRanges([plageStatut]).build();
+  });
+
+  // Jauge de qualité du lead (colonne M)
+  var plageQualite = sheet.getRange('M2:M');
+  var couleursQualite = { 'Chaud': '#FADBC8', 'Tiède': '#FCF3CF', 'Froid': '#E4EAF1' };
+  Object.keys(couleursQualite).forEach(function (q) {
+    regles.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains(q).setBackground(couleursQualite[q]).setRanges([plageQualite]).build());
   });
   sheet.setConditionalFormatRules(regles);
 
@@ -99,10 +121,13 @@ function synchroniserLeads() {
     nouvelles.push(CHAMPS.map(function (c) {
       if (c === 'created_at' && lead[c]) return new Date(lead[c]);
       if (c === 'statut') return lead[c] === 'nouveau' ? 'Nouveau' : (lead[c] || 'Nouveau');
+      if (c === 'qualite') return QUALITES[lead[c]] || (lead[c] || '');
+      if (c === 'score') return lead[c] == null ? '' : Number(lead[c]);
       return lead[c] == null ? '' : String(lead[c]);
     }));
     resume.push('• ' + (lead.nom || '?') + ' — ' + (lead.telephone || '') +
-      (lead.type_projet ? ' — ' + lead.type_projet : '') + (lead.ville ? ' — ' + lead.ville : ''));
+      (lead.type_projet ? ' — ' + lead.type_projet : '') + (lead.ville ? ' — ' + lead.ville : '') +
+      (lead.score != null ? ' — ' + (QUALITES[lead.qualite] || '') + ' ' + lead.score + '/100' : ''));
     if (lead.type_projet === 'catalogue-douches' && lead.email) demandesCatalogue.push(lead);
   });
 
@@ -178,20 +203,25 @@ function construireStats_() {
     ["Aujourd'hui", '=COUNTIFS(Leads!B2:B,">="&TODAY())'],
     ['7 derniers jours', '=COUNTIFS(Leads!B2:B,">="&TODAY()-7)'],
     ['30 derniers jours', '=COUNTIFS(Leads!B2:B,">="&TODAY()-30)'],
-    ['Gagnés', '=COUNTIF(Leads!R2:R,"Gagné")'],
-    ['Taux de conversion', '=IFERROR(COUNTIF(Leads!R2:R,"Gagné")/COUNTA(Leads!A2:A),0)']
+    ['🔥 Leads chauds', '=COUNTIF(Leads!M2:M,"*Chaud*")'],
+    ['Score moyen', '=IFERROR(ROUND(AVERAGE(Leads!L2:L),0),"—")'],
+    ['Gagnés', '=COUNTIF(Leads!V2:V,"Gagné")'],
+    ['Taux de conversion', '=IFERROR(COUNTIF(Leads!V2:V,"Gagné")/COUNTA(Leads!A2:A),0)']
   ];
   lignes.forEach(function (l, i) {
     stats.getRange(3 + i, 1).setValue(l[0]).setFontWeight('bold');
     stats.getRange(3 + i, 2).setFormula(l[1]);
   });
-  stats.getRange('B8').setNumberFormat('0.0%');
+  stats.getRange('B10').setNumberFormat('0.0%');
 
-  stats.getRange('A11').setValue('Par type de projet').setFontWeight('bold').setFontColor(ORANGE);
-  stats.getRange('A12').setFormula('=IFERROR(QUERY(Leads!A2:R,"select H, count(A) where H is not null group by H order by count(A) desc label H \'\', count(A) \'\'",0),"—")');
+  stats.getRange('A13').setValue('Par type de projet').setFontWeight('bold').setFontColor(ORANGE);
+  stats.getRange('A14').setFormula('=IFERROR(QUERY(Leads!A2:V,"select H, count(A) where H is not null group by H order by count(A) desc label H \'\', count(A) \'\'",0),"—")');
 
-  stats.getRange('D11').setValue('Par source de trafic').setFontWeight('bold').setFontColor(ORANGE);
-  stats.getRange('D12').setFormula('=IFERROR(QUERY(Leads!A2:R,"select L, count(A) where L is not null group by L order by count(A) desc label L \'\', count(A) \'\'",0),"—")');
+  stats.getRange('D13').setValue('Par source de trafic').setFontWeight('bold').setFontColor(ORANGE);
+  stats.getRange('D14').setFormula('=IFERROR(QUERY(Leads!A2:V,"select P, count(A) where P is not null group by P order by count(A) desc label P \'\', count(A) \'\'",0),"—")');
+
+  stats.getRange('D3').setValue('Par qualité de lead').setFontWeight('bold').setFontColor(ORANGE);
+  stats.getRange('D4').setFormula('=IFERROR(QUERY(Leads!A2:V,"select M, count(A) where M is not null group by M order by count(A) desc label M \'\', count(A) \'\'",0),"—")');
 
   stats.setColumnWidth(1, 190);
   stats.setColumnWidth(4, 190);

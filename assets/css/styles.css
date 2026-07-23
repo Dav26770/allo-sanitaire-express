@@ -210,7 +210,7 @@ h3 { font-size: 1.28rem; font-family: var(--font-body); font-weight: 700; color:
 .field label .opt { font-weight: 500; color: var(--encre-2); }
 .field input, .field select, .field textarea {
   width: 100%; padding: 12px 14px; border: 1.5px solid var(--ligne); border-radius: var(--radius-sm);
-  font-family: var(--font-body); font-size: .97rem; color: var(--encre); background: var(--craie);
+  font-family: var(--font-body); font-size: 1rem; color: var(--encre); background: var(--craie);
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .field input:focus, .field select:focus, .field textarea:focus {
@@ -586,4 +586,44 @@ h3 { font-size: 1.28rem; font-family: var(--font-body); font-weight: 700; color:
   .catalogue-body { padding: 28px 20px; }
   .catalogue-form { grid-template-columns: 1fr; }
   .footer-bottom { justify-content: center; text-align: center; }
+}
+
+/* --------------------------------------------------------------------------
+   Qualification du lead — puces (budget / délai / occupant) + jauge
+   -------------------------------------------------------------------------- */
+.lead-qualif { display: grid; gap: 13px; }
+.chips-label { display: block; font-size: .82rem; font-weight: 700; margin-bottom: 7px; color: var(--encre); }
+.chips-label .opt { font-weight: 500; color: var(--encre-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { position: relative; display: inline-flex; }
+.chip input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; }
+.chip span {
+  display: inline-flex; align-items: center; min-height: 40px; padding: 8px 15px;
+  border: 1.5px solid var(--ligne); border-radius: 999px; background: var(--craie);
+  font-size: .87rem; font-weight: 600; color: var(--encre-2); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, transform .08s ease;
+}
+.chip:active span { transform: scale(.97); }
+.chip input:checked + span { background: var(--lagune); border-color: var(--lagune); color: #fff; box-shadow: 0 6px 16px rgba(27, 79, 130, .28); }
+.chip input:focus-visible + span { box-shadow: 0 0 0 3px rgba(27, 79, 130, .25); }
+
+.lead-gauge { background: var(--craie); border: 1px solid var(--ligne); border-radius: var(--radius-sm); padding: 11px 14px 12px; }
+.gauge-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: .78rem; font-weight: 700; color: var(--encre-2); }
+.gauge-top strong { color: var(--cuivre-fonce); font-size: .8rem; white-space: nowrap; }
+.lead-gauge.mid .gauge-top strong { color: var(--lagune); }
+.lead-gauge.high .gauge-top strong { color: #1F7A4D; }
+.gauge-bar { height: 8px; border-radius: 999px; background: var(--ligne); overflow: hidden; margin-top: 7px; }
+.gauge-bar i { display: block; height: 100%; width: 6%; border-radius: 999px; background: linear-gradient(90deg, var(--laiton), var(--cuivre)); transition: width .4s ease; }
+.lead-gauge.high .gauge-bar i { background: linear-gradient(90deg, #57B884, #2E9E67); }
+.gauge-hint { font-size: .74rem; color: var(--encre-2); margin-top: 7px; }
+
+/* --------------------------------------------------------------------------
+   Fluidité mobile — tap, zones sûres iPhone
+   -------------------------------------------------------------------------- */
+a, button, .chip span, summary { -webkit-tap-highlight-color: transparent; }
+.mobile-bar a { padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px) / 2); }
+
+@media (max-width: 640px) {
+  body { padding-bottom: calc(62px + env(safe-area-inset-bottom, 0px) / 2); }
+  .chip span { min-height: 44px; font-size: .9rem; }
 }

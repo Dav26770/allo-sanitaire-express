@@ -248,6 +248,206 @@
   }
 
   /* ==========================================================================
+     QUALIFICATION DU LEAD
+     Trois questions à puces (budget, délai, occupant) injectées dans chaque
+     formulaire devis + jauge de précision visible par le visiteur. Un score
+     interne 0-100 est calculé à l'envoi et stocké dans Supabase (colonnes
+     budget/occupant/score/qualite — migration outils/migration-002-qualification.sql).
+     Tant que la migration n'est pas passée, l'envoi bascule automatiquement
+     sur l'ancien format (qualification repliée dans le message) : rien ne casse.
+     ========================================================================== */
+
+  var BUDGET_PTS = {
+    "Moins de 3 000 €": 10,
+    "3 000 – 6 000 €": 18,
+    "6 000 – 10 000 €": 22,
+    "Plus de 10 000 €": 25,
+    "Je ne sais pas encore": 6
+  };
+  var DELAI_PTS = {
+    "Dès que possible": 25,
+    "Dans les 3 mois": 20,
+    "Dans les 6 mois": 12,
+    "Je me renseigne": 5
+  };
+  var OCCUPANT_PTS = {
+    "Propriétaire": 20,
+    "Locataire": 4,
+    "Pour un proche": 12
+  };
+  var PROJET_PTS = {
+    "salle-de-bain-complete": 8,
+    "douche-italienne": 8,
+    "senior-pmr": 8,
+    "wc-sanitaires": 5,
+    "depannage-urgent": 4,
+    "autre": 3
+  };
+
+  function leadScore(lead) {
+    var s = 0;
+    s += BUDGET_PTS[lead.budget] || 0;
+    s += DELAI_PTS[lead.delai] || 0;
+    s += OCCUPANT_PTS[lead.occupant] || 0;
+    var cp = String(lead.code_postal || "").trim();
+    if (/^93\d{3}$/.test(cp)) s += 12;
+    else if (/^(75|92|94)\d{3}$/.test(cp)) s += 10;
+    else if (/^(77|78|91|95)\d{3}$/.test(cp)) s += 7;
+    else if (cp) s += 2;
+    s += PROJET_PTS[lead.type_projet] || 0;
+    var msg = String(lead.message || "").trim();
+    if (msg.length >= 80) s += 10;
+    else if (msg.length >= 25) s += 6;
+    return Math.max(0, Math.min(100, s));
+  }
+
+  function qualiteLabel(score) {
+    if (score >= 70) return "chaud";
+    if (score >= 45) return "tiede";
+    return "froid";
+  }
+
+  function chipGroup(name, label, hint, options) {
+    var html = '<span class="chips-label">' + label +
+      (hint ? ' <span class="opt">' + hint + "</span>" : "") + "</span>" +
+      '<div class="chips" role="radiogroup" aria-label="' + label + '">';
+    options.forEach(function (opt) {
+      html += '<label class="chip"><input type="radio" name="' + name + '" value="' + opt + '"><span>' + opt + "</span></label>";
+    });
+    html += "</div>";
+    var field = document.createElement("div");
+    field.className = "field chips-field";
+    field.innerHTML = html;
+    return field;
+  }
+
+  function updateGauge(form) {
+    var gauge = form.querySelector(".lead-gauge");
+    if (!gauge) return;
+    var fd = new FormData(form);
+    var checks = [
+      ["prenom", function (v) { return !checkName(v, "prénom"); }],
+      ["nom", function (v) { return !checkName(v, "nom"); }],
+      ["telephone", function (v) { return !checkTel(v); }],
+      ["email", function (v) { return !checkEmail(v); }],
+      ["code_postal", function (v) { return /^\d{5}$/.test(String(v || "").trim()); }],
+      ["type_projet", function (v) { return !!v; }],
+      ["budget", function (v) { return !!v; }],
+      ["delai", function (v) { return !!v; }],
+      ["occupant", function (v) { return !!v; }],
+      ["message", function (v) { return String(v || "").trim().length >= 15; }]
+    ];
+    var total = 0;
+    var done = 0;
+    checks.forEach(function (c) {
+      if (!form.querySelector('[name="' + c[0] + '"]')) return;
+      total++;
+      if (c[1](fd.get(c[0]))) done++;
+    });
+    var pct = total ? Math.round((done / total) * 100) : 0;
+    var fill = gauge.querySelector("[data-gauge-fill]");
+    var label = gauge.querySelector("[data-gauge-label]");
+    if (fill) fill.style.width = Math.max(6, pct) + "%";
+    gauge.classList.remove("low", "mid", "high");
+    if (pct >= 80) {
+      gauge.classList.add("high");
+      if (label) label.textContent = "Excellente ✓";
+    } else if (pct >= 45) {
+      gauge.classList.add("mid");
+      if (label) label.textContent = "Bonne — encore un détail";
+    } else {
+      gauge.classList.add("low");
+      if (label) label.textContent = "À compléter";
+    }
+  }
+
+  /* Injection des puces + jauge dans chaque formulaire devis. */
+  document.querySelectorAll("form[data-lead-form]").forEach(function (form) {
+    /* L'ancien select "Vos délais" (contact.html) est remplacé par les puces. */
+    var oldDelai = form.querySelector('select[name="delai"]');
+    if (oldDelai) {
+      var oldField = oldDelai.closest(".field");
+      if (oldField) {
+        var row = oldField.closest(".form-row");
+        oldField.remove();
+        if (row && row.children.length === 1) row.style.gridTemplateColumns = "1fr";
+      }
+    }
+
+    var qualif = document.createElement("div");
+    qualif.className = "lead-qualif";
+    if (!form.querySelector('input[name="budget"]')) {
+      qualif.appendChild(chipGroup("budget", "Votre budget envisagé", "(pour un chiffrage plus juste)", Object.keys(BUDGET_PTS)));
+    }
+    if (!form.querySelector('[name="delai"]')) {
+      qualif.appendChild(chipGroup("delai", "Début des travaux souhaité", "", Object.keys(DELAI_PTS)));
+    }
+    if (!form.querySelector('input[name="occupant"]')) {
+      qualif.appendChild(chipGroup("occupant", "Vous êtes", "", ["Propriétaire", "Locataire", "Pour un proche"]));
+    }
+    if (qualif.children.length) {
+      var msgField = form.querySelector('textarea[name="message"]');
+      var anchor = (msgField && msgField.closest(".field")) || form.querySelector(".consent") || form.querySelector(".form-msg");
+      if (anchor) form.insertBefore(qualif, anchor);
+      else form.appendChild(qualif);
+    }
+
+    var gauge = document.createElement("div");
+    gauge.className = "lead-gauge low";
+    gauge.innerHTML =
+      '<div class="gauge-top"><span>Précision de votre demande</span><strong data-gauge-label>À compléter</strong></div>' +
+      '<div class="gauge-bar" aria-hidden="true"><i data-gauge-fill></i></div>' +
+      '<p class="gauge-hint">Plus votre demande est précise, plus votre estimation est rapide et fiable.</p>';
+    var msgEl = form.querySelector(".form-msg");
+    if (msgEl) form.insertBefore(gauge, msgEl);
+    else form.appendChild(gauge);
+
+    var refresh = function () { updateGauge(form); };
+    form.addEventListener("input", refresh);
+    form.addEventListener("change", refresh);
+    refresh();
+  });
+
+  /* ---------- Envoi Supabase + repli si migration pas encore passée ---------- */
+  function postLead(lead) {
+    return fetch(SUPABASE_URL + "/rest/v1/leads", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+      },
+      body: JSON.stringify(lead)
+    });
+  }
+
+  function stripQualif(lead) {
+    var copy = {};
+    Object.keys(lead).forEach(function (k) {
+      if (["budget", "occupant", "score", "qualite"].indexOf(k) === -1) copy[k] = lead[k];
+    });
+    var extras = [];
+    if (lead.budget) extras.push("Budget : " + lead.budget);
+    if (lead.occupant) extras.push("Occupant : " + lead.occupant);
+    if (lead.score != null) extras.push("Score : " + lead.score + "/100 (" + lead.qualite + ")");
+    if (extras.length) copy.message = extras.join(" · ") + (copy.message ? "\n" + copy.message : "");
+    return copy;
+  }
+
+  function sendLead(lead) {
+    return postLead(lead).then(function (res) {
+      if (res.ok) return true;
+      /* Colonnes budget/occupant/score/qualite absentes (migration 002 pas
+         encore passée) : on replie la qualification dans le message. */
+      return postLead(stripQualif(lead)).then(function (res2) {
+        if (!res2.ok) throw new Error("HTTP " + res2.status);
+        return true;
+      });
+    });
+  }
+
+  /* ==========================================================================
      Formulaire catalogue → Supabase + téléchargement du PDF
      Même garde anti-bot et mêmes vérificateurs que le formulaire devis.
      Le lead part avec type_projet "catalogue-douches" : le script Google Sheet
@@ -319,7 +519,10 @@
         type_projet: "catalogue-douches",
         message: "Demande du catalogue douches (PDF)",
         page: window.location.pathname + window.location.search,
-        user_agent: navigator.userAgent
+        user_agent: navigator.userAgent,
+        /* Lead magnet : intention moyenne par nature, score forfaitaire. */
+        score: 45,
+        qualite: "tiede"
       };
       var tracking = getTracking();
       Object.keys(tracking).forEach(function (k) { lead[k] = tracking[k]; });
@@ -328,17 +531,7 @@
       if (btn) btn.disabled = true;
       bumpSubmitCount();
 
-      fetch(SUPABASE_URL + "/rest/v1/leads", {
-        method: "POST",
-        headers: {
-          "apikey": SUPABASE_KEY,
-          "Authorization": "Bearer " + SUPABASE_KEY,
-          "Content-Type": "application/json",
-          "Prefer": "return=minimal"
-        },
-        body: JSON.stringify(lead)
-      }).then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
+      sendLead(lead).then(function () {
         try {
           window.dataLayer = window.dataLayer || [];
           window.dataLayer.push({ event: "catalogue_lead" });
@@ -441,10 +634,14 @@
         ville: (fd.get("ville") || "").toString().trim() || null,
         type_projet: (fd.get("type_projet") || "").toString() || null,
         delai: (fd.get("delai") || "").toString() || null,
+        budget: (fd.get("budget") || "").toString() || null,
+        occupant: (fd.get("occupant") || "").toString() || null,
         message: (fd.get("message") || "").toString().trim() || null,
         page: window.location.pathname + window.location.search,
         user_agent: navigator.userAgent
       };
+      lead.score = leadScore(lead);
+      lead.qualite = qualiteLabel(lead.score);
 
       var tracking = getTracking();
       Object.keys(tracking).forEach(function (k) { lead[k] = tracking[k]; });
@@ -453,17 +650,12 @@
       if (btn) { btn.disabled = true; }
       bumpSubmitCount();
 
-      fetch(SUPABASE_URL + "/rest/v1/leads", {
-        method: "POST",
-        headers: {
-          "apikey": SUPABASE_KEY,
-          "Authorization": "Bearer " + SUPABASE_KEY,
-          "Content-Type": "application/json",
-          "Prefer": "return=minimal"
-        },
-        body: JSON.stringify(lead)
-      }).then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
+      sendLead(lead).then(function () {
+        /* Score poussé dans GTM : utilisable comme valeur de conversion Ads. */
+        try {
+          window.dataLayer = window.dataLayer || [];
+          window.dataLayer.push({ event: "lead_submit", lead_score: lead.score, lead_qualite: lead.qualite });
+        } catch (e) { /* ignore */ }
         window.location.href = "merci.html";
       }).catch(function () {
         if (btn) { btn.disabled = false; }
