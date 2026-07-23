@@ -1,24 +1,19 @@
 /**
  * Allo Sanitaire Express 93 — Leads Supabase → Google Sheet
- * Installé automatiquement. Ne rien modifier ici.
- * Les nouveaux leads arrivent toutes les 5 minutes dans l'onglet "Leads",
- * les statistiques se mettent à jour dans l'onglet "Stats",
- * et un email est envoyé à chaque nouveau lead.
+ * Version « qualification » (23 juil. 2026) — INSTALLÉE dans Apps Script.
  *
- * ⚠️ MISE À JOUR « qualification » (juil. 2026) : nouvelles colonnes
- * Budget / Occupant / Score / Qualité (🔥 Chaud · 🌤 Tiède · ❄️ Froid).
- * Après avoir recollé ce script :
- *   1. Lancer d'abord la migration outils/migration-002-qualification.sql
- *      dans Supabase (sinon les nouvelles colonnes resteront vides).
- *   2. Vider l'onglet "Leads" (tout sauf rien : supprimer toutes les lignes),
- *      puis exécuter installation() : les leads se réimportent tout seuls
- *      au nouveau format. Attention : les statuts saisis à la main
- *      (Appelé, RDV pris…) seront remis à "Nouveau".
+ * Fonctionnement :
+ *  - synchroniserLeads() tourne toutes les 5 minutes (déclencheur posé par installation())
+ *  - lit la table leads via l'API REST Supabase avec la clé secrète stockée dans
+ *    les propriétés du script (SUPABASE_URL + SUPABASE_SECRET_KEY — déjà en place)
+ *  - ajoute les nouveaux leads (dédoublonnés par ID) dans l'onglet "Leads"
+ *  - colonnes Budget / Occupant / Score / Qualité (🔥 Chaud · 🌤 Tiède · ❄️ Froid)
+ *  - envoie un e-mail de notification à chaque nouveau lead
+ *  - envoie automatiquement le catalogue PDF aux leads "catalogue-douches"
+ *  - onglet "Stats" : totaux, leads chauds, score moyen, répartitions
+ *
+ * Après modification du code : exécuter installation() une fois.
  */
-
-var SUPABASE_URL = 'https://xmkvaetrejjqymahbgvi.supabase.co';
-var CLE_PUBLIQUE = 'sb_publishable_tgF6sFFuzb5u0WhZSybqBg_X_79Xaeb';
-var CODE_EXPORT = 'REMPLACE_PAR_TON_CODE_EXPORT';
 
 var SHEET_ID = '1rqHyq35W3h4H0UO1ktRGi-Piw3RLVOFIRjY199Rxe2c';
 var FEUILLE = 'Leads';
@@ -95,6 +90,11 @@ function installation() {
 }
 
 function synchroniserLeads() {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('SUPABASE_URL') || 'https://xmkvaetrejjqymahbgvi.supabase.co';
+  var key = props.getProperty('SUPABASE_SECRET_KEY');
+  if (!key) throw new Error('Renseigne SUPABASE_SECRET_KEY dans les propriétés du script.');
+
   var sheet = feuille_();
   var premiereFois = sheet.getLastRow() <= 1;
 
@@ -105,11 +105,8 @@ function synchroniserLeads() {
     });
   }
 
-  var reponse = UrlFetchApp.fetch(SUPABASE_URL + '/rest/v1/rpc/export_leads', {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify({ cle: CODE_EXPORT }),
-    headers: { apikey: CLE_PUBLIQUE, Authorization: 'Bearer ' + CLE_PUBLIQUE }
+  var reponse = UrlFetchApp.fetch(url + '/rest/v1/leads?select=*&order=created_at.asc&limit=10000', {
+    headers: { apikey: key, Authorization: 'Bearer ' + key }
   });
   var leads = JSON.parse(reponse.getContentText());
 
@@ -144,12 +141,12 @@ function synchroniserLeads() {
           '\n\nVoir le tableau : ' + SpreadsheetApp.openById(SHEET_ID).getUrl()
         );
       } catch (e) { /* quota email atteint : on continue sans bloquer */ }
-    }
 
-    // Envoi du catalogue aux nouveaux leads "catalogue-douches"
-    demandesCatalogue.forEach(function (lead) {
-      try { envoyerCatalogue_(lead); } catch (e) { /* on n'interrompt pas la synchro */ }
-    });
+      // Envoi du catalogue aux nouveaux leads "catalogue-douches"
+      demandesCatalogue.forEach(function (lead) {
+        try { envoyerCatalogue_(lead); } catch (e) { /* on n'interrompt pas la synchro */ }
+      });
+    }
   }
 }
 
@@ -214,14 +211,14 @@ function construireStats_() {
   });
   stats.getRange('B10').setNumberFormat('0.0%');
 
+  stats.getRange('D3').setValue('Par qualité de lead').setFontWeight('bold').setFontColor(ORANGE);
+  stats.getRange('D4').setFormula('=IFERROR(QUERY(Leads!A2:V,"select M, count(A) where M is not null group by M order by count(A) desc label M \'\', count(A) \'\'",0),"—")');
+
   stats.getRange('A13').setValue('Par type de projet').setFontWeight('bold').setFontColor(ORANGE);
   stats.getRange('A14').setFormula('=IFERROR(QUERY(Leads!A2:V,"select H, count(A) where H is not null group by H order by count(A) desc label H \'\', count(A) \'\'",0),"—")');
 
   stats.getRange('D13').setValue('Par source de trafic').setFontWeight('bold').setFontColor(ORANGE);
   stats.getRange('D14').setFormula('=IFERROR(QUERY(Leads!A2:V,"select P, count(A) where P is not null group by P order by count(A) desc label P \'\', count(A) \'\'",0),"—")');
-
-  stats.getRange('D3').setValue('Par qualité de lead').setFontWeight('bold').setFontColor(ORANGE);
-  stats.getRange('D4').setFormula('=IFERROR(QUERY(Leads!A2:V,"select M, count(A) where M is not null group by M order by count(A) desc label M \'\', count(A) \'\'",0),"—")');
 
   stats.setColumnWidth(1, 190);
   stats.setColumnWidth(4, 190);
@@ -230,4 +227,14 @@ function construireStats_() {
 function feuille_() {
   var doc = SpreadsheetApp.openById(SHEET_ID);
   return doc.getSheetByName(FEUILLE) || doc.insertSheet(FEUILLE, 0);
+}
+
+/**
+ * Vide l'onglet Leads puis réinstalle tout : les leads se réimportent
+ * depuis Supabase au format 22 colonnes. Les statuts saisis à la main
+ * repassent à "Nouveau" — à utiliser seulement pour changer de format.
+ */
+function reinitialisation() {
+  feuille_().clear();
+  installation();
 }
